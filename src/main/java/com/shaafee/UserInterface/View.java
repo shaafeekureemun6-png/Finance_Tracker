@@ -51,7 +51,7 @@ public class View {
                         System.out.println("Goodbye!");
                         running = false;
                     }
-                    default -> System.out.println("Invalid choice. Please enter a number from 0 to 9.");
+                    default -> System.out.println("Invalid choice. Please enter a number from 0 to 8.");
                 }
             } catch (RuntimeException e) {
                 System.out.println("Error: " + e.getMessage());
@@ -70,7 +70,6 @@ public class View {
         System.out.println("6. Monthly summary");
         System.out.println("7. Total by category");
         System.out.println("8. Set monthly budget");
-        System.out.println("9. View budget vs spent");
         System.out.println("0. Exit");
         System.out.print("Choose an option: ");
     }
@@ -79,18 +78,18 @@ public class View {
 
     private void addTransaction() {
         System.out.println("--- Add transaction ---");
-        TransactionType type = readType(null);
-        String description = readText("Description (also its category, e.g. Food): ", null);
-        double amount = readAmount("Amount (RM): ", null);
-        LocalDate date = readDate("Date yyyy-MM-dd (Enter = today): ", LocalDate.now());
-        String id = newId();
+            TransactionType type = readType(null);
+            String description = readText("Description (also its category, e.g. Food): ", null);
+            double amount = readAmount("Amount (RM): ", null);
+            LocalDate date = readDate("Date yyyy-MM-dd (Enter = today): ", LocalDate.now());
+            String id = newId();
 
-        if (transactionController.addTransaction(id, date, amount, description, type)) {
-            System.out.println("Transaction added. ID: " + id);
+            if (transactionController.addTransaction(id, date, amount, description, type)) {
+                System.out.println("Transaction added. ID: " + id);
+            } else {
+                System.out.println("Could not add the transaction.");
+            }
 
-        } else {
-            System.out.println("Could not add the transaction.");
-        }
     }
 
     private void viewByMonth() {
@@ -100,51 +99,55 @@ public class View {
     }
 
     private void editTransaction() {
-        System.out.println("--- Edit transaction ---");
-        String id = readText("Enter the transaction ID to edit: ", null).toUpperCase();
+        do {
+            System.out.println("--- Edit transaction ---");
+            String id = readText("Enter the transaction ID to edit: ", null).toUpperCase();
 
-        Optional<Transaction> found = transactionController.findById(id);
-        if (found.isEmpty()) {
-            System.out.println("No transaction with ID " + id);
-            return;
-        }
-        Transaction current = found.get();
+            Optional<Transaction> found = transactionController.findById(id);
+            if (found.isEmpty()) {
+                System.out.println("No transaction with ID " + id);
+                return;
+            }
+            Transaction current = found.get();
 
-        System.out.println("Press Enter to keep the current value.");
-        TransactionType type = readType(current.getTransactionType());
-        String description = readText("Description [" + current.getDescription() + "]: ",
-                current.getDescription());
-        double amount = readAmount("Amount [" + current.getAmount() + "]: ", current.getAmount());
-        LocalDate date = readDate("Date [" + current.getDate() + "]: ", current.getDate());
+            System.out.println("Press Enter to keep the current value.");
+            TransactionType type = readType(current.getTransactionType());
+            String description = readText("Description [" + current.getDescription() + "]: ",
+                    current.getDescription());
+            double amount = readAmount("Amount [" + current.getAmount() + "]: ", current.getAmount());
+            LocalDate date = readDate("Date [" + current.getDate() + "]: ", current.getDate());
 
-        if (transactionController.updateTransaction(id, date, amount, description, type)) {
-            System.out.println("Transaction updated.");
-        } else {
-            System.out.println("Could not update the transaction.");
-        }
+            if (transactionController.updateTransaction(id, date, amount, description, type)) {
+                System.out.println("Transaction updated.");
+            } else {
+                System.out.println("Could not update the transaction.");
+            }
+        }while (confirm("Edit another transaction?"));
     }
 
     private void deleteTransaction() {
-        System.out.println("--- Delete transaction ---");
-        String id = readText("Enter the transaction ID to delete: ", null).toUpperCase();
+        do {
+            System.out.println("--- Delete transaction ---");
+            String id = readText("Enter the transaction ID to delete: ", null).toUpperCase();
 
-        Optional<Transaction> found = transactionController.findById(id);
-        if (found.isEmpty()) {
-            System.out.println("No transaction with ID " + id);
-            return;
-        }
+            Optional<Transaction> found = transactionController.findById(id);
+            if (found.isEmpty()) {
+                System.out.println("No transaction with ID " + id);
+                return;
+            }
 
-        printTransactions(List.of(found.get()));
-        if (!confirm("Delete this transaction?")) {
-            System.out.println("Cancelled.");
-            return;
-        }
+            printTransactions(List.of(found.get()));
+            if (!confirm("Delete this transaction?")) {
+                System.out.println("Cancelled.");
+                return;
+            }
 
-        if (transactionController.deleteTransaction(id)) {
-            System.out.println("Transaction deleted.");
-        } else {
-            System.out.println("Could not delete the transaction.");
-        }
+            if (transactionController.deleteTransaction(id)) {
+                System.out.println("Transaction deleted.");
+            } else {
+                System.out.println("Could not delete the transaction.");
+            }
+        }while (confirm("Delete another transaction?"));
     }
 
     // ====================== totals ======================
@@ -296,5 +299,9 @@ public class View {
             id = UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         } while (transactionController.findById(id).isPresent());
         return id;
+    }
+    private boolean iterate(String question) {
+        System.out.println(question+ " (y/n): ");
+        return scanner.nextLine().trim().equalsIgnoreCase("y");
     }
 }

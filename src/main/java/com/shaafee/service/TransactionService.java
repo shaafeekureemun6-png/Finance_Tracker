@@ -25,11 +25,13 @@ public class TransactionService {
         return false;
     }
     //edit transaction
-    public boolean updateTransaction(String transactionId, Transaction transactionb){
-        if(transactions.stream().anyMatch(transaction->transaction.getTransactionId().equals(transactionId))){
-            transactions.removeIf(transaction->transaction.getTransactionId().equals(transactionId));
-            transactions.add(transactionb);
-            return true;
+    public boolean updateTransaction(String transactionId, Transaction updated) {
+        for (int i = 0; i < transactions.size(); i++) {
+            if (transactions.get(i).getTransactionId().equals(transactionId)) {
+                updated.setTransactionId(transactionId);   // force the original ID
+                transactions.set(i, updated);              // replace in place
+                return true;
+            }
         }
         return false;
     }
@@ -52,7 +54,7 @@ public class TransactionService {
     }
     //get sum of categorized incomes and expenses
     public double getCategoryTotal(String category, TransactionType type){
-        return transactions.stream().filter(t->t.getDescription().equals(category)).
+        return transactions.stream().filter(t->t.getDescription().equalsIgnoreCase(category.trim())).
                 filter(transaction -> transaction.getTransactionType()==type).
                 mapToDouble(Transaction::getAmount).sum();
     }

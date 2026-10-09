@@ -1,143 +1,160 @@
 package com.shaafee.TransactionStorage;
+
 import com.shaafee.model.Budget;
 import com.shaafee.model.Transaction;
 import com.shaafee.model.TransactionType;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 
-
-
 public class DataStorage {
 
-    private static final String TXN ="TXN";
-    private static final String Budget="BUDGET";
-
-    private final Path file;
+    private final String dbUrl;
 
     public DataStorage(Path file) {
-        this.file = file;
-    }
-    //reading lines from files
-    public List<String> readLines() {
+        this.dbUrl = "jdbc:sqlite:" + file.toAbsolutePath().toString();
 
-        if(!Files.exists(file)) {
-            return new ArrayList<>();
-        }
-        try{
-            List<String> lines = new ArrayList<>();
-            for (String line : Files.readAllLines(file)) {
-                if (!line.isBlank()) {
-                    lines.add(line);
-                }
+        // Ensure parent directory ("data/") exists before creating the DB file
+        try {
+            Path parent = file.toAbsolutePath().getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
             }
-            return lines;
         } catch (IOException e) {
-            throw new UncheckedIOException("Could not read data from " + file, e);
+            throw new RuntimeException("Could not create directory for database", e);
         }
 
-    }
-    // cleaning string
-    private String clean(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace(",", " ")
-                .replace("\n", " ")
-                .replace("\r", " ")
-                .trim();
+        initializeDatabase();
     }
 
-    //loading from file to list
+    private Connection connect() throws SQLException {
+        return DriverManager.getConnection(dbUrl);
+    }
+
+    private void initializeDatabase() {
+        String createTransactionsTable = "CREATE TABLE IF NOT EXISTS transactions ("
+                + "id TEXT PRIMARY KEY, "
+                + "date TEXT NOT NULL, "
+                + "type TEXT NOT NULL, "
+                + "description TEXT, "
+                + "amount REAL NOT NULL"
+                + ");";
+
+        String createBudgetsTable = "CREATE TABLE IF NOT EXISTS budgets ("
+                + "month TEXT NOT NULL, "
+                + "category TEXT NOT NULL, "
+                + "limit_amount REAL NOT NULL, "
+                + "PRIMARY KEY (month, category)"
+                + ");";
+
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(createTransactionsTable);
+            stmt.execute(createBudgetsTable);
+        } catch (SQLException e) {
+            throw new RuntimeException("Could not initialize SQLite database", e);
+        }
+    }
+
     public List<Transaction> loadTransactions() {
         List<Transaction> result = new ArrayList<>();
-        for (String line : readLines()) {
-            String[] p = line.split(",");
-            if (!p[0].equals(TXN)) {
-                continue;
-            }
-            try {
-                // TXN,id,date,type,description,amount
+        String sql = "SELECT id, date, type, description, amount FROM transactions";
+
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
                 result.add(new Transaction(
-                        p[1],                              // id
-                        LocalDate.parse(p[2]),             // date
-                        Double.parseDouble(p[5]),          // amount
-                        p[4],                              // description
-                        TransactionType.valueOf(p[3])));   // type
-            } catch (RuntimeException e) {
-                // bad number, bad date, unknown type, missing column...
-                System.out.println("Skipping unreadable line: " + line);
+                        rs.getString("id"),
+                        LocalDate.parse(rs.getString("date")),
+                        rs.getDouble("amount"),
+                        rs.getString("description"),
+                        TransactionType.valueOf(rs.getString("type"))
+                ));
             }
+        } catch (SQLException e) {
+            System.err.println("Error loading transactions from database: " + e.getMessage());
         }
         return result;
     }
-    // loading budgets
+
     public List<Budget> loadBudgets() {
         List<Budget> result = new ArrayList<>();
-        for (String line : readLines()) {
-            String[] p= line.split(",");
-            if (!p[0].equals(Budget)) {
-                continue;
-            }
-            try {
+        String sql = "SELECT month, category, limit_amount FROM budgets";
+
+        try (Connection conn = connect();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
                 result.add(new Budget(
-                        YearMonth.parse(p[1]),
-                        p[2],
-                        Double.parseDouble(p[3])));
-            } catch (RuntimeException e) {
-                System.out.println("Skipping unreadable line: " + line);
+                        YearMonth.parse(rs.getString("month")),
+                        rs.getString("category"),
+                        rs.getDouble("limit_amount")
+                ));
             }
+        } catch (SQLException e) {
+            System.err.println("Error loading budgets from database: " + e.getMessage());
         }
         return result;
-
-
     }
-    // saving transactions and budgets
+
     public void save(List<Transaction> transactions, List<Budget> budgets) {
-        List<String> lines = new ArrayList<>();
+        String clearTxns = "DELETE FROM transactions";
+        String insertTxn = "INSERT INTO transactions (id, date, type, description, amount) VALUES (?, ?, ?, ?, ?)";
 
-        for (Transaction t : transactions) {
-            lines.add(String.join(",",
-                    TXN,
-                    clean(t.getTransactionId()),
-                    t.getDate().toString(),
-                    t.getTransactionType().name(),
-                    clean(t.getDescription()),
-                    String.valueOf(t.getAmount())));
-        }
+        String clearBudgets = "DELETE FROM budgets";
+        String insertBudget = "INSERT INTO budgets (month, category, limit_amount) VALUES (?, ?, ?)";
 
-        for (Budget b : budgets) {
-            lines.add(String.join(",",
-                    Budget,
-                    b.getMonth().toString(),
-                    clean(b.getCategory()),
-                    String.valueOf(b.getLimit())));
-        }
+        try (Connection conn = connect()) {
+            conn.setAutoCommit(false);
 
-        try {
-            Path folder = file.toAbsolutePath().getParent();
-            Files.createDirectories(folder);
+            try (Statement stmt = conn.createStatement();
+                 PreparedStatement pstmt = conn.prepareStatement(insertTxn)) {
+                stmt.executeUpdate(clearTxns);
+                for (Transaction t : transactions) {
+                    pstmt.setString(1, t.getTransactionId());
+                    pstmt.setString(2, t.getDate().toString());
+                    pstmt.setString(3, t.getTransactionType().name());
+                    pstmt.setString(4, t.getDescription());
+                    pstmt.setDouble(5, t.getAmount());
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+            }
 
-            // Write to a temporary file first, then swap it in.
-            // If the program crashes mid-write, the real file stays intact.
-            Path temp = folder.resolve(file.getFileName() + ".tmp");
-            Files.write(temp, lines);
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not save data to " + file, e);
+            try (Statement stmt = conn.createStatement();
+                 PreparedStatement pstmt = conn.prepareStatement(insertBudget)) {
+                stmt.executeUpdate(clearBudgets);
+                for (Budget b : budgets) {
+                    pstmt.setString(1, b.getMonth().toString());
+                    pstmt.setString(2, b.getCategory());
+                    pstmt.setDouble(3, b.getLimit());
+                    pstmt.addBatch();
+                }
+                pstmt.executeBatch();
+            }
+
+            conn.commit();
+        } catch (SQLException e) {
+            throw new RuntimeException("Could not save data to SQLite database", e);
         }
     }
-
-
-
 }
+
+
 
 
 

@@ -12,19 +12,22 @@ import com.shaafee.service.TransactionService;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class Main {
-    static void main() {
 
-        // 1. Create the storage (the file is created on the first save)
-        DataStorage storage = new DataStorage(Path.of("data", "finance.csv"));
+    public static void main(String[] args) {
+        run(Path.of("data", "finance.db"));
+    }
 
-        // 2. Create the services (they hold the data in memory)
+    // Package-private on purpose: tests call this with a temporary file,
+    // so they never touch your real data/finance.csv.
+    public static void run(Path dataFile) {
+
+        DataStorage storage = new DataStorage(dataFile);
+
         TransactionService transactionService = new TransactionService();
         BudgetService budgetService = new BudgetService();
 
-        // 3. Load saved data from the file into the services
+        // CHANGED: Catch RuntimeException instead of UncheckedIOException
         try {
             for (Transaction t : storage.loadTransactions()) {
                 transactionService.addTransaction(t);
@@ -32,25 +35,19 @@ public class Main {
             for (Budget b : storage.loadBudgets()) {
                 budgetService.setBudget(b);
             }
-        } catch (UncheckedIOException e) {
-            // Stop here: if we carried on, the first save would overwrite
-            // the unreadable file with an empty one.
-            System.out.println("Could not read the data file: " + e.getMessage());
+        } catch (RuntimeException e) {
+            System.out.println("Could not read the database: " + e.getMessage());
             return;
         }
 
-        // 4. What the controllers run after every successful change
         Runnable saveAll = () ->
                 storage.save(transactionService.getTransactions(), budgetService.getBudgets());
 
-        // 5. Create the controllers, sharing the SAME service objects
         TransactionController transactionController =
                 new TransactionController(transactionService, saveAll);
         BudgetController budgetController =
                 new BudgetController(budgetService, transactionService, saveAll);
 
-        // 6. Start the console menu
         new View(transactionController, budgetController).run();
-
     }
 }
